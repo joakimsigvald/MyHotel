@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: myhotel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: myhotel
+      POSTGRES_USER: myhotel
+      POSTGRES_PASSWORD: myhotel
+    ports:
+      - "5432:5432"
+    volumes:
+      - myhotel-pgdata:/var/lib/postgresql/data
+
+volumes:
+  myhotel-pgdata:

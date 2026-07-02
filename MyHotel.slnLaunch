@@ -1,0 +1,12 @@
+[
+  {
+    "Name": "Run site",
+    "Projects": [
+      {
+        "Path": "src\\Host\\Host.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      }
+    ]
+  }
+]

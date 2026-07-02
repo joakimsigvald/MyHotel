@@ -1,0 +1,71 @@
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+section {
+  margin-bottom: 32px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+form {
+  display: grid;
+  gap: 12px;
+  max-width: 400px;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+input,
+select,
+button {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+button {
+  cursor: pointer;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: transparent;
+  width: fit-content;
+}
+
+button:hover {
+  border-color: var(--accent-border);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  color: #d33;
+  margin-top: 12px;
+}
+
+.cancelled {
+  opacity: 0.5;
+}
