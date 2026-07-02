@@ -7,19 +7,32 @@ Booking system for small/local hotels. .NET 10 backend with event sourcing (Mart
 ```
 frontend/     React + Vite + TypeScript (dev server proxies /api → backend)
 src/Contract/ Thin DTOs, service interfaces and results — no dependencies
-src/Core/     Events, aggregates and business logic; implements Contract,
-              defines repository ports that Infra implements
+src/Core/     Events, aggregates (deciders) and services; implements Contract,
+              defines reader + unit-of-work ports that Infra implements
 src/Entry/    Minimal API endpoints: HTTP in, Contract services, HTTP out
-src/Infra/    Marten: repositories and projections, implements Core's ports
-src/Host/     Startup, dependency injection, Marten wiring, dev seed data
+src/Infra/    Marten: readers, unit of work, projections — implements Core's ports
+src/Host/     Composition root: configuration, DI wiring, dev seed data
 ```
 
-**Event sourcing / CQRS:** All state changes are stored as events (`RoomRegistered`,
-`ReservationMade`, `ReservationCancelled`) in Marten's event store. Read models
-(`Room`, `Reservation`) are Marten *inline projections*: they are updated in the same
-PostgreSQL transaction as the event append, so a command that returns success is
-immediately visible to queries — no eventual consistency for the UI to handle, no
-WebSockets needed.
+**Event sourcing / CQRS:** All state changes are stored as events in Marten's event
+store, across two kinds of streams:
+
+- **Room stream** (per room): `RoomRegistered` plus thin occupancy claims —
+  `PeriodClaimed(reservationId, period)` / `PeriodReleased(reservationId)`. The
+  no-double-booking invariant is a single-stream invariant here, decided by the
+  `RoomCalendar` aggregate (replayed live, never stored) and guarded by optimistic
+  append: booking commits with an expected stream version, so two racing bookings
+  conflict and the loser re-decides against the fresh calendar (up to 3 attempts).
+- **Reservation stream** (per reservation): the booking lifecycle
+  (`ReservationMade`, `ReservationCancelled`). Cancelling is decided by the
+  `Reservation` aggregate and releases the claim on the room stream — both appends
+  commit in one transaction (Marten's unit of work spans streams).
+
+Aggregates decide (returning events or failures), services orchestrate (load →
+decide → stage → commit), and read models (`Room`, `Reservation`) are Marten
+*inline projections*: updated in the same PostgreSQL transaction as the event
+append, so a command that returns success is immediately visible to queries — no
+eventual consistency for the UI to handle, no WebSockets needed.
 
 **API:**
 
@@ -59,18 +72,17 @@ npm run dev
 ## Notes
 
 - Core stays free of the Marten package because event→aggregate mapping is done by
-  explicit projection classes in Infra (`RoomProjection`, `ReservationProjection`)
-  that delegate to the aggregates. Marten 9 dispatches conventional `Apply`/`Create`
-  methods via a compile-time source generator, so these projection classes must be
-  declared `partial` and live in an assembly referencing the Marten NuGet package —
-  otherwise the API fails at startup with `InvalidProjectionException:
-  No source-generated dispatcher found`.
+  explicit projection classes in Infra (`RoomProjection`, `RoomCalendarProjection`,
+  `ReservationProjection`) that delegate to the aggregates. Marten 9 dispatches
+  conventional `Apply`/`Create` methods via a compile-time source generator, so these
+  projection classes must be declared `partial` and live in an assembly referencing
+  the Marten NuGet package — otherwise the API fails at startup with
+  `InvalidProjectionException: No source-generated dispatcher found`.
+- Aggregates use private setters, which Marten's default System.Text.Json serializer
+  silently ignores when loading documents (properties keep their defaults). Infra's
+  `Serialization.Configure` adds a type-info modifier that binds non-public setters.
 
 ## Known simplifications (to revisit)
 
-- **Double-booking race:** the overlap check and the event append are not guarded
-  against concurrent writers booking the same room simultaneously. Fine for a demo;
-  real fix is a transactional guard (e.g. serializable isolation or an exclusion
-  constraint on the projection table).
 - No authentication, no multi-hotel tenancy, prices are plain decimals with a
   hardcoded € in the UI.

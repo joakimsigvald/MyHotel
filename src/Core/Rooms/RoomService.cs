@@ -3,7 +3,7 @@ using Applique.MyHotel.Contract.Rooms;
 
 namespace Applique.MyHotel.Core.Rooms;
 
-public class RoomService(IRoomRepository rooms) : IRoomService
+public class RoomService(IRoomReader rooms, IUnitOfWorkFactory uowFactory) : IRoomService
 {
     public async Task<IReadOnlyList<RoomDto>> GetRoomsAsync(CancellationToken ct)
         => [.. (await rooms.GetAllAsync(ct)).Select(ToDto)];
@@ -13,18 +13,20 @@ public class RoomService(IRoomRepository rooms) : IRoomService
 
     public async Task<Result<Guid>> RegisterRoomAsync(RegisterRoom command, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(command.Number))
-            return Failure.Validation("number", "Room number is required.");
-        if (command.Capacity < 1)
-            return Failure.Validation("capacity", "Capacity must be at least 1.");
-        if (await rooms.NumberExistsAsync(command.Number, ct))
-            return Failure.Conflict($"A room with number '{command.Number}' already exists.");
+        var decision = Room.Register(command);
+        if (decision.Failure is { } failure)
+            return failure;
+        var registered = decision.Value!;
 
-        var roomId = Guid.NewGuid();
-        await rooms.AddAsync(roomId,
-            new RoomRegistered(roomId, command.Number, command.Name, command.Capacity, command.PricePerNight), ct);
+        if (await rooms.NumberExistsAsync(registered.Number, ct))
+            return Failure.Conflict($"A room with number '{registered.Number}' already exists.");
 
-        return Result<Guid>.Success(roomId);
+        await using var uow = uowFactory.Create();
+        uow.StartRoom(registered.RoomId, registered);
+        if (await uow.CommitAsync(ct) is not CommitResult.Committed)
+            return Failure.Conflict($"A room with number '{registered.Number}' already exists.");
+
+        return Result<Guid>.Success(registered.RoomId);
     }
 
     private static RoomDto ToDto(Room r) => new(r.Id, r.Number, r.Name, r.Capacity, r.PricePerNight);

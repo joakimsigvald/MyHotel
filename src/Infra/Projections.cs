@@ -12,6 +12,16 @@ public partial class RoomProjection : SingleStreamProjection<Room, Guid>
     public static Room Create(RoomRegistered e) => Room.Create(e);
 }
 
+// Live only: rehydrated per decision by replaying the room stream, never stored.
+public partial class RoomCalendarProjection : SingleStreamProjection<RoomCalendar, Guid>
+{
+    public static RoomCalendar Create(RoomRegistered e) => RoomCalendar.Create(e);
+
+    public void Apply(PeriodClaimed e, RoomCalendar calendar) => calendar.Apply(e);
+
+    public void Apply(PeriodReleased e, RoomCalendar calendar) => calendar.Apply(e);
+}
+
 public partial class ReservationProjection : SingleStreamProjection<Reservation, Guid>
 {
     public static Reservation Create(ReservationMade e) => Reservation.Create(e);

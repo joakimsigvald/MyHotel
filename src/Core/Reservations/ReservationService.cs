@@ -7,43 +7,66 @@ using ContractStatus = Applique.MyHotel.Contract.Reservations.ReservationStatus;
 namespace Applique.MyHotel.Core.Reservations;
 
 public class ReservationService(
-    IRoomRepository rooms,
-    IReservationRepository reservations) : IReservationService
+    IReservationReader reservations,
+    IUnitOfWorkFactory uowFactory) : IReservationService
 {
+    private const int MaxAttempts = 5;
+
     public async Task<IReadOnlyList<ReservationDto>> GetReservationsAsync(CancellationToken ct)
         => [.. (await reservations.GetAllAsync(ct)).Select(ToDto)];
 
     public async Task<Result<Guid>> MakeReservationAsync(MakeReservation command, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(command.GuestName))
-            return Failure.Validation("guestName", "Guest name is required.");
-        if (command.CheckIn >= command.CheckOut)
-            return Failure.Validation("checkOut", "Check-out must be after check-in.");
+        var decision = Reservation.Make(command);
+        if (decision.Failure is { } failure)
+            return failure;
+        var made = decision.Value!;
 
-        var room = await rooms.FindAsync(command.RoomId, ct);
-        if (room is null)
-            return Failure.NotFound($"Room {command.RoomId} does not exist.");
+        // Optimistic append on the room stream guards the no-overlap invariant;
+        // a version conflict means someone else booked concurrently, so re-decide
+        // against the fresh calendar instead of failing non-overlapping requests.
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            await using var uow = uowFactory.Create();
 
-        if (await reservations.HasOverlappingAsync(command.RoomId, command.CheckIn, command.CheckOut, ct))
-            return Failure.Conflict($"Room {room.Number} is already booked in that period.");
+            var calendar = await uow.GetCalendarAsync(made.RoomId, ct);
+            if (calendar is null)
+                return Failure.NotFound($"Room {made.RoomId} does not exist.");
 
-        var reservationId = Guid.NewGuid();
-        await reservations.AddAsync(reservationId,
-            new ReservationMade(reservationId, command.RoomId,
-                command.GuestName, command.GuestEmail, command.CheckIn, command.CheckOut), ct);
+            var claim = calendar.Claim(made.ReservationId, made.CheckIn, made.CheckOut);
+            if (claim.Failure is { } claimFailure)
+                return claimFailure;
 
-        return Result<Guid>.Success(reservationId);
+            uow.AppendToRoom(made.RoomId, claim.Value!);
+            uow.StartReservation(made.ReservationId, made);
+
+            if (await uow.CommitAsync(ct) is CommitResult.Committed)
+                return Result<Guid>.Success(made.ReservationId);
+
+            // Jittered backoff so concurrent losers don't retry in lockstep.
+            await Task.Delay(Random.Shared.Next(10, 50 * attempt), ct);
+        }
+
+        return Failure.Conflict("The room is being booked concurrently, please retry.");
     }
 
     public async Task<Result> CancelReservationAsync(Guid id, CancellationToken ct)
     {
-        var reservation = await reservations.FindAsync(id, ct);
+        await using var uow = uowFactory.Create();
+
+        var reservation = await uow.GetReservationAsync(id, ct);
         if (reservation is null)
             return Failure.NotFound();
-        if (reservation.Status == ReservationStatus.Cancelled)
-            return Failure.Conflict("Reservation is already cancelled.");
 
-        await reservations.AppendAsync(id, new ReservationCancelled(id), ct);
+        var decision = reservation.Cancel();
+        if (decision.Failure is { } failure)
+            return failure;
+
+        uow.AppendToReservation(id, decision.Value!);
+        uow.AppendToRoom(reservation.RoomId, new PeriodReleased(id));
+
+        if (await uow.CommitAsync(ct) is not CommitResult.Committed)
+            return Failure.Conflict("The reservation was changed concurrently, please retry.");
 
         return Result.Success;
     }
