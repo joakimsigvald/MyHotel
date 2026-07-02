@@ -1,7 +1,12 @@
 <Solution>
+  <Project Path="frontend/frontend.esproj">
+    <Build />
+    <Deploy />
+  </Project>
   <Folder Name="/src/">
     <Project Path="src/Contract/Contract.csproj" />
     <Project Path="src/Core/Core.csproj" />
+    <Project Path="src/Core.Spec/Core.Spec.csproj" />
     <Project Path="src/Entry/Entry.csproj" />
     <Project Path="src/Host/Host.csproj" />
     <Project Path="src/Infra/Infra.csproj" />
