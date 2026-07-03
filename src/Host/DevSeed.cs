@@ -22,7 +22,5 @@ public static class DevSeed
 
         foreach (var command in commands)
             await rooms.RegisterRoomAsync(command, CancellationToken.None);
-
-        app.Logger.LogInformation("Seeded {Count} rooms", commands.Length);
     }
 }

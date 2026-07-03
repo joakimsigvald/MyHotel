@@ -14,13 +14,13 @@ public abstract class WhenRegister : Spec<Result<RoomRegistered>>
     private static readonly Tag<int> _capacity = new(nameof(_capacity));
 
     protected WhenRegister()
-        => When(_ => Register(new RegisterRoom(The(_roomNumber)!, A<string>(), The(_capacity), A<decimal>())));
+        => When(_ => Register(new RegisterRoom(The(_roomNumber), A<string>(), The(_capacity), A<decimal>())));
 
     public class GivenValidCommand : WhenRegister
     {
         public GivenValidCommand() => Given(_capacity).Is(2);
 
-        [Fact] public void ThenRoomIsRegistered() => Result.Value!.Number.Is(The(_roomNumber)!);
+        [Fact] public void ThenRoomIsRegistered() => Result.Value!.Number.Is(The(_roomNumber));
 
         [Fact] public void ThenHasNoFailure() => Result.Has(_ => _!.Failure is null);
     }

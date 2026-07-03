@@ -10,7 +10,7 @@ public class ReservationService(
     IReservationReader reservations,
     IUnitOfWorkFactory uowFactory) : IReservationService
 {
-    private const int MaxAttempts = 5;
+    private const int _maxAttempts = 5;
 
     public async Task<IReadOnlyList<ReservationDto>> GetReservationsAsync(CancellationToken ct)
         => [.. (await reservations.GetAllAsync(ct)).Select(ToDto)];
@@ -25,7 +25,7 @@ public class ReservationService(
         // Optimistic append on the room stream guards the no-overlap invariant;
         // a version conflict means someone else booked concurrently, so re-decide
         // against the fresh calendar instead of failing non-overlapping requests.
-        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        for (var attempt = 1; attempt <= _maxAttempts; attempt++)
         {
             await using var uow = uowFactory.Create();
 
